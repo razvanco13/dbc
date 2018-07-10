@@ -48,16 +48,6 @@ struct Socket
         }
     }
 
-//    void flush()
-//    {
-//        socket_.flush();
-//    }
-//
-//    bool empty()
-//    {
-//        return socket_.empty;
-//    }
-
 private:
 
     TcpSocket socket_;

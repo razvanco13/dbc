@@ -64,10 +64,13 @@ struct InputPacket
     auto countUntil(ubyte x, bool expect)
     {
         auto index = in_.countUntil(x);
-        if (expect) {
+
+        if (expect)
+        {
             if ((index < 0) || (in_[index] != x))
                 throw new MySQLProtocolException("Bad packet format");
         }
+
         return index;
     }
 
@@ -277,7 +280,9 @@ protected:
         {
             auto capacity = max(128, (*buffer_).capacity);
             while (capacity < requested)
+            {
                 capacity <<= 1;
+            }
 
             buffer_.length = capacity;
             out_ = buffer_.ptr + 4;
