@@ -799,33 +799,36 @@ private:
             status_.affected = packet.eatLenEnc();
             status_.lastInsertId = packet.eatLenEnc();
             status_.flags = packet.eat!ushort;
-            status_.warnings = packet.eat!ushort;
+            if (caps_ & CapabilityFlags.CLIENT_PROTOCOL_41)
+            {
+                status_.warnings = packet.eat!ushort;
+            }
             status_.error = 0;
+            info([]);
 
-            if (!packet.empty && (caps_ & CapabilityFlags.CLIENT_SESSION_TRACK))
+            if (caps_ & CapabilityFlags.CLIENT_SESSION_TRACK)
             {
-                info(packet.eat!(const(char)[])(cast(size_t)packet.eatLenEnc()));
-                packet.skip(1);
-
-                if (status_.flags & StatusFlags.SERVER_SESSION_STATE_CHANGED)
+                if (!packet.empty)
                 {
-                    packet.skip(cast(size_t)packet.eatLenEnc());
-                    packet.skip(1);
+                    info(packet.eat!(const(char)[])(cast(size_t)packet.eatLenEnc()));
+
+                    if (!packet.empty && (status_.flags & StatusFlags.SERVER_SESSION_STATE_CHANGED))
+                    {
+                        packet.skip(cast(size_t)packet.eatLenEnc());
+                    }
                 }
             }
-
-            if (!packet.empty)
+            else
             {
-                auto len = cast(size_t)packet.eatLenEnc();
-                info(packet.eat!(const(char)[])(min(len, packet.remaining)));
+				info(packet.eat!(const(char)[])(packet.remaining));
+			}
 
-                auto matches = matchFirst(info_, ctRegex!(`\smatched:\s*(\d+)\s+changed:\s*(\d+)`, `i`));
-                if (!matches.empty)
-                {
-                    status_.matched = matches[1].to!ulong;
-                    status_.changed = matches[2].to!ulong;
-                }
-            }
+            auto matches = matchFirst(info_, ctRegex!(`\smatched:\s*(\d+)\s+changed:\s*(\d+)`, `i`));
+            if (!matches.empty)
+            {
+				status_.matched = matches[1].to!ulong;
+				status_.changed = matches[2].to!ulong;
+			}
 
             break;
         case StatusPackets.EOF_Packet:
