@@ -10,7 +10,6 @@ import std.ascii;
 import mysql.exception;
 import mysql.type;
 
-
 enum Strict
 {
     yes = 0,
@@ -21,10 +20,10 @@ enum Strict
 private uint hashOf(const(char)[] x)
 {
     uint hash = 2166136261u;
-	foreach(i; 0..x.length)
-		hash = (hash ^ cast(uint)(std.ascii.toLower(x.ptr[i]))) * 16777619u;
+    foreach(i; 0..x.length)
+        hash = (hash ^ cast(uint)(std.ascii.toLower(x.ptr[i]))) * 16777619u;
 
-	return hash;
+    return hash;
 }
 
 private bool equalsCI(const(char)[]x, const(char)[] y)
@@ -61,13 +60,13 @@ struct MySQLRow
 
     auto opSlice() const
     {
-		return values_;
-	}
+        return values_;
+    }
 
-	auto opSlice(size_t i, size_t j) const
-	{
-		return values_[i..j];
-	}
+    auto opSlice(size_t i, size_t j) const
+    {
+        return values_[i..j];
+    }
 
     ref auto opIndex(string key) const
     {
@@ -191,10 +190,10 @@ package:
 
     ref auto dispatchFast_(uint hash, string key) const
     {
-		if (auto index = find_(hash, key))
-			return opIndex(index - 1);
-		throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set");
-	}
+        if (auto index = find_(hash, key))
+            return opIndex(index - 1);
+        throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set");
+    }
 
     void header_(MySQLHeader header)
     {

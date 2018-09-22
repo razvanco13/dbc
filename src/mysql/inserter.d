@@ -323,13 +323,13 @@ struct Inserter
 
     @property void bufferSize(size_t size)
     {
-		bufferSize_ = size;
-	}
+        bufferSize_ = size;
+    }
 
-	@property size_t bufferSize() const
-	{
-		return bufferSize_;
-	}
+    @property size_t bufferSize() const
+    {
+        return bufferSize_;
+    }
 
     private void reset()
     {

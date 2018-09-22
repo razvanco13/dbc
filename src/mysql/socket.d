@@ -1,7 +1,12 @@
 module mysql.socket;
 
+import core.stdc.errno;
+
 import std.socket;
 import std.exception;
+import std.datetime;
+
+import mysql.exception;
 
 struct Socket
 {
@@ -11,6 +16,8 @@ struct Socket
         socket_.connect(new InternetAddress(host, port));
         socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.KEEPALIVE, true);
         socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.TCP_NODELAY, true);
+        socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.SNDTIMEO, 30.seconds);
+        socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, 30.seconds);
     }
 
     bool connected() inout
@@ -30,21 +37,59 @@ struct Socket
 
     void read(ubyte[] buffer)
     {
-        for (size_t off, len; off < buffer.length; off += len)
+        long len;
+
+        for (size_t off; off < buffer.length; off += len)
         {
             len = socket_.receive(buffer[off..$]);
-            enforce(len != 0, "Server closed the connection");
-            enforce(len != std.socket.Socket.ERROR, "Received std.socket.Socket.ERROR");
+
+            if (len > 0)
+            {
+                continue;
+            }
+
+            if (len == 0)
+            {
+                throw new MySQLConnectionException("Server closed the connection");
+            }
+
+            if ((errno == EINTR) || (errno == EAGAIN) || (errno == EWOULDBLOCK))
+            {
+                len = 0;
+
+                continue;
+            }
+
+            throw new MySQLConnectionException("Received std.socket.Socket.ERROR: " ~ formatSocketError(errno));
         }
     }
 
     void write(in ubyte[] buffer)
     {
-        for (size_t off, len; off < buffer.length; off += len)
+        long len;
+
+        for (size_t off; off < buffer.length; off += len)
         {
             len = socket_.send(buffer[off..$]);
-            enforce(len != 0, "Server closed the connection");
-            enforce(len != std.socket.Socket.ERROR, "Received std.socket.Socket.ERROR");
+
+            if (len > 0)
+            {
+                continue;
+            }
+
+            if (len == 0)
+            {
+                throw new MySQLConnectionException("Server closed the connection");
+            }
+
+            if ((errno == EINTR) || (errno == EAGAIN) || (errno == EWOULDBLOCK))
+            {
+                len = 0;
+
+                continue;
+            }
+
+            throw new MySQLConnectionException("Sent std.socket.Socket.ERROR: " ~ formatSocketError(errno));
         }
     }
 

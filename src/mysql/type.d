@@ -22,7 +22,7 @@ struct TableNameAttribute { const(char)[] name; }
 
 @property TableNameAttribute tableName(const(char)[] name)
 {
-	return TableNameAttribute(name);
+    return TableNameAttribute(name);
 }
 
 @property IgnoreAttribute ignore()
@@ -47,110 +47,110 @@ struct TableNameAttribute { const(char)[] name; }
 
 template isValueType(T)
 {
-	static if (is(Unqual!T == struct) && !isInstanceOf!(Nullable, T) && !is(Unqual!T == MySQLValue) && !is(Unqual!T == Date) && !is(Unqual!T == DateTime) && !is(Unqual!T == SysTime) && !is(Unqual!T == Duration))
-	{
-		enum isValueType = false;
-	}
+    static if (is(Unqual!T == struct) && !isInstanceOf!(Nullable, T) && !is(Unqual!T == MySQLValue) && !is(Unqual!T == Date) && !is(Unqual!T == DateTime) && !is(Unqual!T == SysTime) && !is(Unqual!T == Duration))
+    {
+        enum isValueType = false;
+    }
     else
     {
-		enum isValueType = true;
-	}
+        enum isValueType = true;
+    }
 }
 
 template isWritableDataMember(T, string Member)
 {
-	static if (is(TypeTuple!(__traits(getMember, T, Member))))
-	{
-		enum isWritableDataMember = false;
-	}
-	else static if (!is(typeof(__traits(getMember, T, Member))))
+    static if (is(TypeTuple!(__traits(getMember, T, Member))))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
+    else static if (!is(typeof(__traits(getMember, T, Member))))
+    {
+        enum isWritableDataMember = false;
+    }
     else static if (is(typeof(__traits(getMember, T, Member)) == void))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if (is(typeof(__traits(getMember, T, Member)) == enum))
     {
-		enum isWritableDataMember = true;
-	}
+        enum isWritableDataMember = true;
+    }
     else static if (hasUDA!(__traits(getMember, T, Member), IgnoreAttribute))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if (isArray!(typeof(__traits(getMember, T, Member))) && !is(typeof(typeof(__traits(getMember, T, Member)).init[0]) == ubyte) && !is(typeof(__traits(getMember, T, Member)) == string))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if (isAssociativeArray!(typeof(__traits(getMember, T, Member))))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if (isSomeFunction!(typeof(__traits(getMember, T, Member))))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if (!is(typeof((){ T x = void; __traits(getMember, x, Member) = __traits(getMember, x, Member); }())))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else static if ((__traits(getProtection, __traits(getMember, T, Member)) != "public") && (__traits(getProtection, __traits(getMember, T, Member)) != "export"))
     {
-		enum isWritableDataMember = false;
-	}
+        enum isWritableDataMember = false;
+    }
     else
     {
-		enum isWritableDataMember = true;
-	}
+        enum isWritableDataMember = true;
+    }
 }
 
 template isReadableDataMember(T, string Member)
 {
-	static if (is(TypeTuple!(__traits(getMember, T, Member))))
-	{
-		enum isReadableDataMember = false;
-	}
-	else static if (!is(typeof(__traits(getMember, T, Member))))
-	{
-		enum isReadableDataMember = false;
-	}
-	else static if (is(typeof(__traits(getMember, T, Member)) == void))
-	{
-		enum isReadableDataMember = false;
-	}
-	else static if (is(typeof(__traits(getMember, T, Member)) == enum))
-	{
-		enum isReadableDataMember = true;
-	}
+    static if (is(TypeTuple!(__traits(getMember, T, Member))))
+    {
+        enum isReadableDataMember = false;
+    }
+    else static if (!is(typeof(__traits(getMember, T, Member))))
+    {
+        enum isReadableDataMember = false;
+    }
+    else static if (is(typeof(__traits(getMember, T, Member)) == void))
+    {
+        enum isReadableDataMember = false;
+    }
+    else static if (is(typeof(__traits(getMember, T, Member)) == enum))
+    {
+        enum isReadableDataMember = true;
+    }
     else static if (hasUDA!(__traits(getMember, T, Member), IgnoreAttribute))
     {
-		enum isReadableDataMember = false;
-	}
+        enum isReadableDataMember = false;
+    }
     else static if (isArray!(typeof(__traits(getMember, T, Member))) && !is(typeof(typeof(__traits(getMember, T, Member)).init[0]) == ubyte) && !is(typeof(__traits(getMember, T, Member)) == string))
     {
-		enum isReadableDataMember = false;
-	}
+        enum isReadableDataMember = false;
+    }
     else static if (isAssociativeArray!(typeof(__traits(getMember, T, Member))))
     {
-		enum isReadableDataMember = false;
-	}
+        enum isReadableDataMember = false;
+    }
     else static if (isSomeFunction!(typeof(__traits(getMember, T, Member)))  /* && return type is valueType*/ )
     {
-		enum isReadableDataMember = true;
-	}
+        enum isReadableDataMember = true;
+    }
     else static if (!is(typeof((){ T x = void; __traits(getMember, x, Member) = __traits(getMember, x, Member); }())))
     {
-		enum isReadableDataMember = false;
-	}
+        enum isReadableDataMember = false;
+    }
     else static if ((__traits(getProtection, __traits(getMember, T, Member)) != "public") && (__traits(getProtection, __traits(getMember, T, Member)) != "export"))
     {
-		enum isReadableDataMember = false;
-	}
+        enum isReadableDataMember = false;
+    }
     else
     {
-		enum isReadableDataMember = true;
-	}
+        enum isReadableDataMember = true;
+    }
 }
 
 struct MySQLRawString
@@ -242,28 +242,28 @@ struct MySQLValue
         this = value;
     }
 
-	this(T)(T value) if (std.traits.isFloatingPoint!T)
-	{
-		alias UT = Unqual!T;
+    this(T)(T value) if (std.traits.isFloatingPoint!T)
+    {
+        alias UT = Unqual!T;
 
-		sign_ = 0x00;
-		static if (is(UT == float))
-		{
-			type_ = ColumnTypes.MYSQL_TYPE_FLOAT;
-			buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
-		}
-		else static if (is(UT == double))
-		{
-			type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
-			buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
-		}
-		else
-		{
-			type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
-			auto data = cast(double)value;
-			buffer_[0..typeof(data).sizeof] = (cast(ubyte*)&data)[0..typeof(data).sizeof];
-		}
-	}
+        sign_ = 0x00;
+        static if (is(UT == float))
+        {
+            type_ = ColumnTypes.MYSQL_TYPE_FLOAT;
+            buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
+        }
+        else static if (is(UT == double))
+        {
+            type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
+            buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
+        }
+        else
+        {
+            type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
+            auto data = cast(double)value;
+            buffer_[0..typeof(data).sizeof] = (cast(ubyte*)&data)[0..typeof(data).sizeof];
+        }
+    }
 
     this(T)(T value) if (isIntegral!T || isBoolean!T)
     {
@@ -541,10 +541,10 @@ struct MySQLValue
 
     T get(T)() const if(isInstanceOf!(Nullable, T))
     {
-		if (type_ == ColumnTypes.MYSQL_TYPE_NULL)
-			return T.init;
-		return T(get!(typeof(T.init.get)));
-	}
+        if (type_ == ColumnTypes.MYSQL_TYPE_NULL)
+            return T.init;
+        return T(get!(typeof(T.init.get)));
+    }
 
     T peek(T)(lazy T def) const
     {
@@ -1565,34 +1565,34 @@ void putValue(T)(ref OutputPacket packet, T value) if (isIntegral!T || isBoolean
 
 void putValueType(T)(ref OutputPacket packet, T value) if (isFloatingPoint!T)
 {
-	alias UT = Unqual!T;
+    alias UT = Unqual!T;
 
-	enum ubyte sign = 0x00;
+    enum ubyte sign = 0x00;
 
-	static if (is(UT == float))
-	{
-		packet.put!ubyte(ColumnTypes.MYSQL_TYPE_FLOAT);
-		packet.put!ubyte(sign);
-	}
-	else
-	{
-		packet.put!ubyte(ColumnTypes.MYSQL_TYPE_DOUBLE);
-		packet.put!ubyte(sign);
-	}
+    static if (is(UT == float))
+    {
+        packet.put!ubyte(ColumnTypes.MYSQL_TYPE_FLOAT);
+        packet.put!ubyte(sign);
+    }
+    else
+    {
+        packet.put!ubyte(ColumnTypes.MYSQL_TYPE_DOUBLE);
+        packet.put!ubyte(sign);
+    }
 }
 
 void putValue(T)(ref OutputPacket packet, T value) if (isFloatingPoint!T)
 {
-	alias UT = Unqual!T;
+    alias UT = Unqual!T;
 
-	static if (is(UT == float))
-	{
-		packet.put!float(value);
-	}
-	else
-	{
-		packet.put!double(cast(double)value);
-	}
+    static if (is(UT == float))
+    {
+        packet.put!float(value);
+    }
+    else
+    {
+        packet.put!double(cast(double)value);
+    }
 }
 
 void putValueType(T)(ref OutputPacket packet, T value) if (isSomeString!(OriginalType!T))
@@ -1709,24 +1709,24 @@ void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == typeof(nul
 
 void putValueType(T)(ref OutputPacket packet, T value) if (isInstanceOf!(Nullable, T) || isInstanceOf!(NullableRef, T))
 {
-	if (value.isNull)
-	{
-		putValueType(packet, null);
-	}
-	else
-	{
-		putValueType(packet, value.get);
-	}
+    if (value.isNull)
+    {
+        putValueType(packet, null);
+    }
+    else
+    {
+        putValueType(packet, value.get);
+    }
 }
 
 void putValue(T)(ref OutputPacket packet, T value) if (isInstanceOf!(Nullable, T) || isInstanceOf!(NullableRef, T))
 {
-	if (value.isNull)
-	{
-		putValue(packet, null);
-	}
-	else
-	{
-		putValue(packet, value.get);
-	}
+    if (value.isNull)
+    {
+        putValue(packet, null);
+    }
+    else
+    {
+        putValue(packet, value.get);
+    }
 }

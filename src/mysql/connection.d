@@ -754,7 +754,7 @@ private:
         }
 
         caps_ = cast(CapabilityFlags)(settings_.caps & server_.caps);
- 
+
         ubyte[20] token;
         {
             import std.digest.sha : sha1Of;
@@ -856,15 +856,15 @@ private:
             }
             else
             {
-				info(packet.eat!(const(char)[])(packet.remaining));
-			}
+                info(packet.eat!(const(char)[])(packet.remaining));
+            }
 
             auto matches = matchFirst(info_, regex(`\smatched:\s*(\d+)\s+changed:\s*(\d+)`, `i`));
             if (!matches.empty)
             {
-				status_.matched = matches[1].to!ulong;
-				status_.changed = matches[2].to!ulong;
-			}
+                status_.matched = matches[1].to!ulong;
+                status_.changed = matches[2].to!ulong;
+            }
 
             break;
         case StatusPackets.EOF_Packet:
@@ -1306,15 +1306,15 @@ private:
                 estimated += 6;
             }
         }
-            
+
         return argCount;
     }
 
     auto prepareSQL(Args...)(const(char)[] sql, Args args)
     {
         auto estimated = sql.length;
-		auto argCount = estimateArgs(estimated, args);
-        
+        auto argCount = estimateArgs(estimated, args);
+
         sql_.clear;
         sql_.reserve(max(8192, estimated));
 
@@ -1346,7 +1346,7 @@ private:
         }
 
         finishCopy(sql_, sql, argCount, indexArg);
-        
+
         return sql_.data;
     }
 
@@ -1468,4 +1468,3 @@ bool appendNextValue(T)(ref Appender!(char[]) app, ref const(char)[] sql, ref si
 
     return true;
 }
-
