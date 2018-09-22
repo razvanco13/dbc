@@ -6,6 +6,9 @@ import std.conv : to;
 import std.regex : ctRegex, matchFirst;
 import std.string;
 import std.traits;
+import std.uni : sicmp;
+import std.utf : decode, UseReplacementDchar;
+import std.regex;
 
 import mysql.exception;
 import mysql.packet;
@@ -13,7 +16,7 @@ import mysql.protocol;
 import mysql.type;
 import mysql.socket;
 import mysql.row;
-import mysql.utils;
+import mysql.appender;
 
 immutable CapabilityFlags DefaultClientCaps = CapabilityFlags.CLIENT_LONG_PASSWORD | CapabilityFlags.CLIENT_LONG_FLAG |
 CapabilityFlags.CLIENT_CONNECT_WITH_DB | CapabilityFlags.CLIENT_PROTOCOL_41 | CapabilityFlags.CLIENT_SECURE_CONNECTION | CapabilityFlags.CLIENT_SESSION_TRACK;
@@ -67,7 +70,7 @@ struct ConnectionSettings
             if (indexValueEnd == remaining.length)
                 return;
 
-            remaining = remaining[indexValueEnd+1..$];
+            remaining  = remaining[indexValueEnd + 1..$];
             indexValue = remaining.indexOf("=");
         }
 
@@ -133,10 +136,10 @@ class Connection
         connect();
     }
 
-    void use(string File = __FILE__, size_t Line = __LINE__)(const(char)[] db)
+    void use(const(char)[] db)
     {
         send(Commands.COM_INIT_DB, db);
-        eatStatus!(File, Line)(retrieve());
+        eatStatus(retrieve());
 
         if ((caps_ & CapabilityFlags.CLIENT_SESSION_TRACK) == 0)
         {
@@ -145,22 +148,22 @@ class Connection
         }
     }
 
-    void ping(string File = __FILE__, size_t Line = __LINE__)()
+    void ping()
     {
         send(Commands.COM_PING);
-        eatStatus!(File, Line)(retrieve());
+        eatStatus(retrieve());
     }
 
-    void refresh(string File = __FILE__, size_t Line = __LINE__)()
+    void refresh()
     {
         send(Commands.COM_REFRESH);
-        eatStatus!(File, Line)(retrieve());
+        eatStatus(retrieve());
     }
 
-    void reset(string File = __FILE__, size_t Line = __LINE__)()
+    void reset()
     {
         send(Commands.COM_RESET_CONNECTION);
-        eatStatus!(File, Line)(retrieve());
+        eatStatus(retrieve());
     }
 
     const(char)[] statistics()
@@ -181,7 +184,7 @@ class Connection
         return settings_;
     }
 
-    auto prepare(string File = __FILE__, size_t Line = __LINE__)(const(char)[] sql)
+    auto prepare(const(char)[] sql)
     {
         if (allowClientPreparedCache_ && (sql in clientPreparedCaches))
         {
@@ -193,7 +196,7 @@ class Connection
         auto answer = retrieve();
 
         if (answer.peek!ubyte != StatusPackets.OK_Packet)
-            eatStatus!(File, Line)(answer);
+            eatStatus(answer);
 
         answer.expect!ubyte(0);
 
@@ -229,63 +232,70 @@ class Connection
         return stmt;
     }
 
-    void executeNoPrepare(string File = __FILE__, size_t Line = __LINE__, Args...)(const(char)[] sql, Args args)
+    void executeNoPrepare(Args...)(const(char)[] sql, Args args)
     {
-        query!(File, Line)(sql, args);
+        query(sql, args);
     }
 
-    void execute(string File = __FILE__, size_t Line = __LINE__, Args...)(const(char)[] sql, Args args)
+    void execute(Args...)(const(char)[] sql, Args args)
     {
         //scope(failure) close_();
 
-        auto id = prepare!(File, Line)(sql);
-        execute!(File, Line)(id, args);
+        auto id = prepare(sql);
+        execute(id, args);
         //closePreparedStatement(id);
     }
 
-    void set(T, string File = __FILE__, size_t Line = __LINE__)(const(char)[] variable, T value)
+    void set(T)(const(char)[] variable, T value)
     {
-        query!(File, Line)("set session ?=?", MySQLFragment(variable), value);
+        query("set session ?=?", MySQLFragment(variable), value);
     }
 
-    const(char)[] get(string File = __FILE__, size_t Line = __LINE__)(const(char)[] variable)
+    const(char)[] get(const(char)[] variable)
     {
         const(char)[] result;
-        query!(File, Line)("show session variables like ?", variable, (MySQLRow row) {
+        query("show session variables like ?", variable, (MySQLRow row)
+        {
             result = row[1].peek!(const(char)[]).dup;
         });
 
         return result;
     }
 
-    void startTransaction(string File = __FILE__, size_t Line = __LINE__)()
+    void startTransaction()
     {
         if (inTransaction)
-            throw new MySQLErrorException("MySQL does not support nested transactions - commit or rollback before starting a new transaction", File, Line);
+        {
+            throw new MySQLErrorException("MySQL does not support nested transactions - commit or rollback before starting a new transaction");
+        }
 
-        query!(File, Line)("start transaction");
+        query("start transaction");
 
         assert(inTransaction);
     }
 
-    void commit(string File = __FILE__, size_t Line = __LINE__)()
+    void commit()
     {
         if (!inTransaction)
-            throw new MySQLErrorException("No active transaction", File, Line);
+        {
+            throw new MySQLErrorException("No active transaction");
+        }
 
-        query!(File, Line)("commit");
+        query("commit");
 
         assert(!inTransaction);
     }
 
-    void rollback(string File = __FILE__, size_t Line = __LINE__)()
+    void rollback()
     {
         if (connected)
         {
             if ((status_.flags & StatusFlags.SERVER_STATUS_IN_TRANS) == 0)
-                throw new MySQLErrorException("No active transaction", File, Line);
+            {
+                throw new MySQLErrorException("No active transaction");
+            }
 
-            query!(File, Line)("rollback");
+            query("rollback");
 
             assert(!inTransaction);
         }
@@ -296,7 +306,7 @@ class Connection
         return connected && (status_.flags & StatusFlags.SERVER_STATUS_IN_TRANS);
     }
 
-    void execute(string File = __FILE__, size_t Line = __LINE__, Args...)(PreparedStatement stmt, Args args)
+    void execute(Args...)(PreparedStatement stmt, Args args)
     {
         //scope(failure) close_();
 
@@ -321,7 +331,9 @@ class Connection
         enum argCount = shouldDiscard ? args.length : (args.length - 1);
 
         if (!argCount && stmt.params)
-            throw new MySQLErrorException(format("Wrong number of parameters for query. Got 0 but expected %d.", stmt.params), File, Line);
+        {
+            throw new MySQLErrorException(format("Wrong number of parameters for query. Got 0 but expected %d.", stmt.params));
+        }
 
         static if (argCount)
         {
@@ -343,7 +355,9 @@ class Connection
                 else static if (is(Unqual!(typeof(arg)) == MySQLValue))
                 {
                     if (arg.isNull)
+                    {
                         nulls[index] = nulls[index] | (1 << bit);
+                    }
                     ++indexArg;
                 }
                 else static if (isArray!(typeof(arg)) && !isSomeString!(typeof(arg)))
@@ -370,14 +384,18 @@ class Connection
 
                         remaining = (indexArg - bitsOut);
                         if (!remaining || (!finishing && (remaining < NullsCapacity)))
+                        {
                             break;
+                        }
                     }
                 }
             }
             packet.put!ubyte(1);
 
             if (indexArg != stmt.params)
-                throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", indexArg, stmt.params), File, Line);
+            {
+                throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", indexArg, stmt.params));
+            }
 
             foreach (arg; args[0..argCount])
             {
@@ -393,16 +411,13 @@ class Connection
 
             foreach (arg; args[0..argCount])
             {
-                static if (!is(typeof(arg) == typeof(null)))
+                static if (is(typeof(arg) == enum))
                 {
-                    static if (is(typeof(arg) == enum))
-                    {
-                        putValue(packet, cast(OriginalType!(Unqual!(typeof(arg))))arg);
-                    }
-                    else
-                    {
-                        putValue(packet, arg);
-                    }
+                    putValue(packet, cast(OriginalType!(Unqual!(typeof(arg))))arg);
+                }
+                else
+                {
+                    putValue(packet, arg);
                 }
             }
         }
@@ -415,13 +430,13 @@ class Connection
         auto answer = retrieve();
         if (isStatus(answer))
         {
-            eatStatus!(File, Line)(answer);
+            eatStatus(answer);
         }
         else
         {
             static if (!shouldDiscard)
             {
-                resultSet!(File, Line)(answer, stmt.id, Commands.COM_STMT_EXECUTE, args[args.length - 1]);
+                resultSet(answer, stmt.id, Commands.COM_STMT_EXECUTE, args[args.length - 1]);
             }
             else
             {
@@ -485,9 +500,14 @@ class Connection
         ensureConnected();
 
         if (inTransaction)
+        {
             rollback;
+        }
+
         if (settings_.db.length && (settings_.db != schema_))
+        {
             use(settings_.db);
+        }
     }
 
     @property void trace(bool enable)
@@ -531,7 +551,7 @@ private:
         close();
     }
 
-    void query(string File, size_t Line, Args...)(const(char)[] sql, Args args)
+    void query(Args...)(const(char)[] sql, Args args)
     {
         //scope(failure) close_();
 
@@ -548,7 +568,7 @@ private:
 
         static if (argCount)
         {
-            auto querySQL =  prepareSQL!(File, Line)(sql, args[0..argCount]);
+            auto querySQL =  prepareSQL(sql, args[0..argCount]);
         }
         else
         {
@@ -559,7 +579,7 @@ private:
         {
             import std.stdio : stderr, writefln;
             if (trace_)
-                stderr.writefln("%s:%s %s", File, Line, querySQL);
+                stderr.writefln("%s:%s %s", querySQL);
         }
 
         send(Commands.COM_QUERY, querySQL);
@@ -567,13 +587,13 @@ private:
         auto answer = retrieve();
         if (isStatus(answer))
         {
-            eatStatus!(File, Line)(answer);
+            eatStatus(answer);
         }
         else
         {
             static if (!shouldDiscard)
             {
-                resultSetText!(File, Line)(answer, Commands.COM_QUERY, args[args.length - 1]);
+                resultSetText(answer, Commands.COM_QUERY, args[args.length - 1]);
             }
             else
             {
@@ -608,18 +628,23 @@ private:
 
         socket_.write(header.get());
         if (length)
+        {
             socket_.write(data[0..length]);
+        }
     }
 
     void ensureConnected()
     {
         if (!socket_.connected)
+        {
             connect();
+        }
     }
 
     bool isStatus(InputPacket packet)
     {
         auto id = packet.peek!ubyte;
+
         switch (id)
         {
         case StatusPackets.ERR_Packet:
@@ -630,14 +655,14 @@ private:
         }
     }
 
-    void check(string File, size_t Line)(InputPacket packet, bool smallError = false)
+    void check(InputPacket packet, bool smallError = false)
     {
         auto id = packet.peek!ubyte;
         switch (id)
         {
         case StatusPackets.ERR_Packet:
         case StatusPackets.OK_Packet:
-            eatStatus!(File, Line)(packet, smallError);
+            eatStatus(packet, smallError);
             break;
         default:
             break;
@@ -655,7 +680,9 @@ private:
         auto seq = header[3];
 
         if (seq != seq_)
+        {
             throw new MySQLConnectionException("Out of order packet received");
+        }
 
         ++seq_;
 
@@ -663,7 +690,9 @@ private:
         socket_.read(in_);
 
         if (in_.length != len)
+        {
             throw new MySQLConnectionException("Wrong number of bytes read");
+        }
 
         return InputPacket(&in_);
     }
@@ -672,7 +701,7 @@ private:
     {
         //scope(failure) close_();
 
-        check!(__FILE__, __LINE__)(packet, true);
+        check(packet, true);
 
         server_.protocol = packet.eat!ubyte;
         server_.versionString = packet.eat!(const(char)[])(packet.countUntil(0, true)).dup;
@@ -698,7 +727,9 @@ private:
             server_.caps |= CapabilityFlags.CLIENT_LONG_PASSWORD;
 
             if ((server_.caps & CapabilityFlags.CLIENT_PROTOCOL_41) == 0)
+            {
                 throw new MySQLProtocolException("Server doesn't support protocol v4.1");
+            }
 
             if (server_.caps & CapabilityFlags.CLIENT_SECURE_CONNECTION)
             {
@@ -713,13 +744,17 @@ private:
 
             authLength += packet.countUntil(0, true);
             if (authLength > auth.length)
+            {
                 throw new MySQLConnectionException("Bad packet format");
+            }
 
             auth[authLengthStart..authLength] = packet.eat!(ubyte[])(authLength - authLengthStart);
 
             packet.expect!ubyte(0);
         }
 
+        caps_ = cast(CapabilityFlags)(settings_.caps & server_.caps);
+ 
         ubyte[20] token;
         {
             import std.digest.sha : sha1Of;
@@ -728,10 +763,11 @@ private:
             token = sha1Of(auth[0..authLength], sha1Of(pass));
 
             foreach (i; 0..20)
+            {
                 token[i] = token[i] ^ pass[i];
+            }
         }
 
-        caps_ = cast(CapabilityFlags)(settings_.caps & server_.caps);
         auto reply = OutputPacket(&out_);
 
         reply.reserve(64 + settings_.user.length + settings_.pwd.length + settings_.db.length);
@@ -784,10 +820,10 @@ private:
 
         socket_.write(reply.get());
 
-        eatStatus!(__FILE__, __LINE__)(retrieve());
+        eatStatus(retrieve());
     }
 
-    void eatStatus(string File, size_t Line)(InputPacket packet, bool smallError = false)
+    void eatStatus(InputPacket packet, bool smallError = false)
     {
         auto id = packet.eat!ubyte;
 
@@ -823,7 +859,7 @@ private:
 				info(packet.eat!(const(char)[])(packet.remaining));
 			}
 
-            auto matches = matchFirst(info_, ctRegex!(`\smatched:\s*(\d+)\s+changed:\s*(\d+)`, `i`));
+            auto matches = matchFirst(info_, regex(`\smatched:\s*(\d+)\s+changed:\s*(\d+)`, `i`));
             if (!matches.empty)
             {
 				status_.matched = matches[1].to!ulong;
@@ -845,31 +881,33 @@ private:
             status_.affected = 0;
             status_.changed = 0;
             status_.matched = 0;
-            //status_.flags = 0;
+            //status_.flags = 0;//[shove]
             status_.flags &= StatusFlags.SERVER_STATUS_IN_TRANS;
             status_.warnings = 0;
             status_.error = packet.eat!ushort;
             if (!smallError)
+            {
                 packet.skip(6);
+            }
             info(packet.eat!(const(char)[])(packet.remaining));
 
             switch(status_.error) {
             case ErrorCodes.ER_DUP_ENTRY_WITH_KEY_NAME:
             case ErrorCodes.ER_DUP_ENTRY:
-                throw new MySQLDuplicateEntryException(info_.idup, File, Line);
+                throw new MySQLDuplicateEntryException(info_.idup);
             case ErrorCodes.ER_DATA_TOO_LONG_FOR_COL:
-                throw new MySQLDataTooLongException(info_.idup, File, Line);
+                throw new MySQLDataTooLongException(info_.idup);
             case ErrorCodes.ER_DEADLOCK_FOUND:
-                throw new MySQLDeadlockFoundException(info_.idup, File, Line);
+                throw new MySQLDeadlockFoundException(info_.idup);
             default:
                 version(development)
                 {
                     // On dev show the query together with the error message
-                    throw new MySQLErrorException(format("[err:%s] %s - %s", status_.error, info_, sql_.data), File, Line);
+                    throw new MySQLErrorException(format("[err:%s] %s - %s", status_.error, info_, sql_.data));
                 }
                 else
                 {
-                    throw new MySQLErrorException(format("[err:%s] %s", status_.error, info_), File, Line);
+                    throw new MySQLErrorException(format("[err:%s] %s", status_.error, info_));
                 }
             }
         default:
@@ -892,11 +930,13 @@ private:
         packet.skip(cast(size_t)packet.eatLenEnc());    // name
         packet.skip(cast(size_t)packet.eatLenEnc());    // original_name
         packet.skipLenEnc();                            // next_length
-        packet.skip(10); // 2 + 4 + 1 + 2 + 1            // charset, length, type, flags, decimals
+        packet.skip(10); // 2 + 4 + 1 + 2 + 1           // charset, length, type, flags, decimals
         packet.expect!ushort(0);
 
         if (cmd == Commands.COM_FIELD_LIST)
+        {
             packet.skip(cast(size_t)packet.eatLenEnc());// default values
+        }
     }
 
     void columnDef(InputPacket packet, Commands cmd, ref MySQLColumn def)
@@ -907,10 +947,10 @@ private:
         packet.skip(cast(size_t)packet.eatLenEnc());    // original_table
         auto len = cast(size_t)packet.eatLenEnc();
         columns_ ~= packet.eat!(const(char)[])(len);
-        def.name = columns_[$-len..$];
+        def.name = columns_[$ - len..$];
         packet.skip(cast(size_t)packet.eatLenEnc());    // original_name
         packet.skipLenEnc();                            // next_length
-        packet.skip(2);                                    // charset
+        packet.skip(2);                                 // charset
         def.length = packet.eat!uint;
         def.type = cast(ColumnTypes)packet.eat!ubyte;
         def.flags = packet.eat!ushort;
@@ -919,14 +959,18 @@ private:
         packet.expect!ushort(0);
 
         if (cmd == Commands.COM_FIELD_LIST)
+        {
             packet.skip(cast(size_t)packet.eatLenEnc());// default values
+        }
     }
 
     void columnDefs(size_t count, Commands cmd, ref MySQLColumn[] defs)
     {
         defs.length = count;
         foreach (i; 0..count)
+        {
             columnDef(retrieve(), cmd, defs[i]);
+        }
     }
 
     bool callHandler(RowHandler)(RowHandler handler, size_t, MySQLHeader, MySQLRow row) if ((ParameterTypeTuple!(RowHandler).length == 1) && is(ParameterTypeTuple!(RowHandler)[0] == MySQLRow))
@@ -987,6 +1031,7 @@ private:
 
         packet.expect!ubyte(0);
         auto nulls = packet.eat!(ubyte[])((header.length + 2 + 7) >> 3);
+
         foreach (i, ref column; header)
         {
             const auto index = (i + 2) >> 3; // bit offset of 2
@@ -1005,7 +1050,7 @@ private:
         assert(packet.empty);
     }
 
-    void resultSet(string File = __FILE__, size_t Line = __LINE__, RowHandler)(InputPacket packet, uint stmt, Commands cmd, RowHandler handler)
+    void resultSet(RowHandler)(InputPacket packet, uint stmt, Commands cmd, RowHandler handler)
     {
         columns_.length = 0;
 
@@ -1015,7 +1060,9 @@ private:
 
         auto status = retrieve();
         if (status.peek!ubyte == StatusPackets.ERR_Packet)
-            eatStatus!(File, Line)(status);
+        {
+            eatStatus(status);
+        }
 
         size_t index;
         auto statusFlags = eatEOF(status);
@@ -1028,7 +1075,9 @@ private:
 
                 auto answer = retrieve();
                 if (answer.peek!ubyte == StatusPackets.ERR_Packet)
-                    eatStatus!(File, Line)(answer);
+                {
+                    eatStatus(answer);
+                }
 
                 auto row = answer.empty ? retrieve() : answer;
                 while (true)
@@ -1091,7 +1140,7 @@ private:
         assert(packet.empty);
     }
 
-    void resultSetText(string File, size_t Line, RowHandler)(InputPacket packet, Commands cmd, RowHandler handler)
+    void resultSetText(RowHandler)(InputPacket packet, Commands cmd, RowHandler handler)
     {
         columns_.length = 0;
 
@@ -1110,7 +1159,7 @@ private:
                 break;
             } else if (row.peek!ubyte == StatusPackets.ERR_Packet)
             {
-                eatStatus!(File, Line)(row);
+                eatStatus(row);
                 break;
             }
 
@@ -1160,7 +1209,9 @@ private:
     {
         auto id = packet.eat!ubyte;
         if (id != StatusPackets.EOF_Packet)
+        {
             throw new MySQLProtocolException("Unexpected packet format");
+        }
 
         status_.error = 0;
         status_.warnings = packet.eat!ushort();
@@ -1170,9 +1221,8 @@ private:
         return status_.flags;
     }
 
-    auto prepareSQL(string File, size_t Line, Args...)(const(char)[] sql, Args args)
+    auto estimateArgs(Args...)(ref size_t estimated, Args args)
     {
-        auto estimated = sql.length;
         size_t argCount;
 
         foreach(i, arg; args)
@@ -1256,7 +1306,15 @@ private:
                 estimated += 6;
             }
         }
+            
+        return argCount;
+    }
 
+    auto prepareSQL(Args...)(const(char)[] sql, Args args)
+    {
+        auto estimated = sql.length;
+		auto argCount = estimateArgs(estimated, args);
+        
         sql_.clear;
         sql_.reserve(max(8192, estimated));
 
@@ -1268,12 +1326,12 @@ private:
         {
             static if (is(Arg == enum))
             {
-                funcs[i] = () @trusted { return cast(AppendFunc)&appendNextValue.appendNextValue!(OriginalType!Arg); }();
+                funcs[i] = () @trusted { return cast(AppendFunc)&appendNextValue!(OriginalType!Arg); }();
                 addrs[i] = (ref x) @trusted { return cast(const void*)&x; }(cast(OriginalType!(Unqual!Arg))args[i]);
             }
             else
             {
-                funcs[i] = () @trusted { return cast(AppendFunc)&appendNextValue.appendNextValue!(Arg); }();
+                funcs[i] = () @trusted { return cast(AppendFunc)&appendNextValue!(Arg); }();
                 addrs[i] = (ref x) @trusted { return cast(const void*)&x; }(args[i]);
             }
         }
@@ -1282,18 +1340,29 @@ private:
         foreach (i; 0..Args.length)
         {
             if (!funcs[i](sql_, sql, indexArg, addrs[i]))
-                throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", argCount, indexArg), File, Line);
+            {
+                throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", argCount, indexArg));
+            }
         }
 
-        if (Utils.copyUpToNext(sql_, sql))
+        finishCopy(sql_, sql, argCount, indexArg);
+        
+        return sql_.data;
+    }
+
+    void finishCopy(ref Appender!(char[]) app, ref const(char)[] sql, size_t argCount, size_t indexArg)
+    {
+        if (copyUpToNext(sql_, sql))
         {
             ++indexArg;
-            while (Utils.copyUpToNext(sql_, sql))
-                ++indexArg;
-            throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", argCount, indexArg), File, Line);
-        }
 
-        return sql_.data;
+            while (copyUpToNext(sql_, sql))
+            {
+                ++indexArg;
+            }
+
+            throw new MySQLErrorException(format("Wrong number of parameters for query. Got %d but expected %d.", argCount, indexArg));
+        }
     }
 
     Socket socket_;
@@ -1319,3 +1388,84 @@ private:
     bool allowClientPreparedCache_ = true;
     PreparedStatement[string] clientPreparedCaches;
 }
+
+auto copyUpToNext(ref Appender!(char[]) app, ref const(char)[] sql)
+{
+    size_t offset;
+    dchar quote = '\0';
+
+    while (offset < sql.length)
+    {
+        auto ch = decode!(UseReplacementDchar.no)(sql, offset);
+        switch (ch)
+        {
+        case '?':
+            if (!quote)
+            {
+                app.put(sql[0..offset - 1]);
+                sql = sql[offset..$];
+                return true;
+            }
+            else
+            {
+                goto default;
+            }
+        case '\'':
+        case '\"':
+        case '`':
+            if (quote == ch)
+            {
+                quote = '\0';
+            }
+            else if (!quote)
+            {
+                quote = ch;
+            }
+            goto default;
+        case '\\':
+            if (quote && (offset < sql.length))
+                decode!(UseReplacementDchar.no)(sql, offset);
+            goto default;
+        default:
+            break;
+        }
+    }
+    app.put(sql[0..offset]);
+    sql = sql[offset..$];
+
+    return false;
+}
+
+bool appendNextValue(T)(ref Appender!(char[]) app, ref const(char)[] sql, ref size_t indexArg, const(void)* arg)
+{
+    static if (isArray!T && !isSomeString!(OriginalType!T))
+    {
+        foreach (i, ref v; *cast(T*)arg)
+        {
+            if (copyUpToNext(app, sql))
+            {
+                appendValue(app, v);
+                ++indexArg;
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
+    else
+    {
+        if (copyUpToNext(app, sql))
+        {
+            appendValue(app, *cast(T*)arg);
+            ++indexArg;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+

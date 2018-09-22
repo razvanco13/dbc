@@ -40,6 +40,14 @@ class MySQLDuplicateEntryException : MySQLErrorException
     }
 }
 
+class MySQLDataTooLongException : MySQLErrorException
+{
+	this(string msg, string file = __FILE__, size_t line = __LINE__) pure
+	{
+		super(msg, file, line);
+	}
+}
+
 class MySQLDeadlockFoundException : MySQLErrorException
 {
     this(string msg, string file = __FILE__, size_t line = __LINE__) pure
@@ -48,7 +56,7 @@ class MySQLDeadlockFoundException : MySQLErrorException
     }
 }
 
-class MySQLDataTooLongException : MySQLErrorException
+class MySQLTableDoesntExistException : MySQLErrorException
 {
     this(string msg, string file = __FILE__, size_t line = __LINE__) pure
     {

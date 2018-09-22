@@ -9,80 +9,7 @@ import std.ascii;
 
 import mysql.exception;
 import mysql.type;
-import mysql.utils;
 
-private struct IgnoreAttribute {}
-private struct OptionalAttribute {}
-private struct NameAttribute { const(char)[] name; }
-private struct UnCamelCaseAttribute {}
-
-@property IgnoreAttribute ignore()
-{
-    return IgnoreAttribute();
-}
-
-@property OptionalAttribute optional()
-{
-    return OptionalAttribute();
-}
-
-@property NameAttribute as(const(char)[] name)
-{
-    return NameAttribute(name);
-}
-
-@property UnCamelCaseAttribute uncamel()
-{
-    return UnCamelCaseAttribute();
-}
-
-template isWritableDataMember(T, string Member)
-{
-    static if (is(TypeTuple!(__traits(getMember, T, Member))))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (!is(typeof(__traits(getMember, T, Member))))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (is(typeof(__traits(getMember, T, Member)) == void))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (is(typeof(__traits(getMember, T, Member)) == enum))
-    {
-        enum isWritableDataMember = true;
-    }
-    else static if (hasUDA!(__traits(getMember, T, Member), IgnoreAttribute))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (isArray!(typeof(__traits(getMember, T, Member))) && !is(typeof(typeof(__traits(getMember, T, Member)).init[0]) == ubyte) && !is(typeof(__traits(getMember, T, Member)) == string))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (isAssociativeArray!(typeof(__traits(getMember, T, Member))))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (isSomeFunction!(typeof(__traits(getMember, T, Member))))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if (!is(typeof((){ T x = void; __traits(getMember, x, Member) = __traits(getMember, x, Member); }())))
-    {
-        enum isWritableDataMember = false;
-    }
-    else static if ((__traits(getProtection, __traits(getMember, T, Member)) != "public") && (__traits(getProtection, __traits(getMember, T, Member)) != "export"))
-    {
-        enum isWritableDataMember = false;
-    }
-    else
-    {
-        enum isWritableDataMember = true;
-    }
-}
 
 enum Strict
 {
@@ -93,11 +20,11 @@ enum Strict
 
 private uint hashOf(const(char)[] x)
 {
-    uint hash = 5381;
-    foreach(i; 0..x.length)
-        hash = (hash * 33) ^ cast(uint)(std.ascii.toLower(x.ptr[i]));
+    uint hash = 2166136261u;
+	foreach(i; 0..x.length)
+		hash = (hash ^ cast(uint)(std.ascii.toLower(x.ptr[i]))) * 16777619u;
 
-    return cast(uint)hash;
+	return hash;
 }
 
 private bool equalsCI(const(char)[]x, const(char)[] y)
@@ -126,22 +53,30 @@ struct MySQLRow
         return names_;
     }
 
-    @property ref auto opDispatch(string key, string File = __FILE__, size_t Line = __LINE__)() const
+    @property ref auto opDispatch(string key)() const
     {
         enum hash = hashOf(key);
-        if (auto index = find_(hash, key))
-            return opIndex(index - 1);
-        throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set", File, Line);
+        return dispatchFast_(hash, key);
     }
 
-    ref auto opIndex(string File = __FILE__, size_t Line = __LINE__)(string key) const
+    auto opSlice() const
+    {
+		return values_;
+	}
+
+	auto opSlice(size_t i, size_t j) const
+	{
+		return values_[i..j];
+	}
+
+    ref auto opIndex(string key) const
     {
         if (auto index = find_(key.hashOf, key))
             return values_[index - 1];
-        throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set", File, Line);
+        throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set");
     }
 
-    ref auto opIndex(string File = __FILE__, size_t Line = __LINE__)(size_t index) const
+    ref auto opIndex(size_t index) const
     {
         return values_[index];
     }
@@ -214,7 +149,7 @@ struct MySQLRow
         return result;
     }
 
-    void toStruct(T, Strict strict = Strict.yesIgnoreNull, string File = __FILE__, size_t Line = __LINE__)(ref T x) if(is(Unqual!T == struct))
+    void toStruct(T, Strict strict = Strict.yesIgnoreNull)(ref T x) if(is(Unqual!T == struct))
     {
         static if (isTuple!(Unqual!T))
         {
@@ -224,8 +159,6 @@ struct MySQLRow
                 {
                     static if (strict != Strict.yes)
                     {
-                        if (this[i].isNull)
-                            continue;
                         if (!this[i].isNull)
                             f = this[i].get!(Unqual!(typeof(f)));
                     }
@@ -236,25 +169,32 @@ struct MySQLRow
                 }
                 else static if ((strict == Strict.yes) || (strict == Strict.yesIgnoreNull))
                 {
-                    throw new MySQLErrorException("Column " ~ i ~ " is out of range for this result set", File, Line);
+                    throw new MySQLErrorException("Column " ~ i ~ " is out of range for this result set");
                 }
             }
         }
         else
         {
-            structurize!(T, strict, null, File, Line)(x);
+            structurize!(T, strict, null)(x);
         }
     }
 
-    T toStruct(T, Strict strict = Strict.yesIgnoreNull, string File = __FILE__, size_t Line = __LINE__)() if (is(Unqual!T == struct))
+    T toStruct(T, Strict strict = Strict.yesIgnoreNull)() if (is(Unqual!T == struct))
     {
         T result;
-        toStruct!(T, strict, File, Line)(result);
+        toStruct!(T, strict)(result);
 
         return result;
     }
 
 package:
+
+    ref auto dispatchFast_(uint hash, string key) const
+    {
+		if (auto index = find_(hash, key))
+			return opIndex(index - 1);
+		throw new MySQLErrorException("Column '" ~ key ~ "' was not found in this result set");
+	}
 
     void header_(MySQLHeader header)
     {
@@ -333,7 +273,7 @@ package:
 
 private:
 
-    void structurize(T, Strict strict = Strict.yesIgnoreNull, string path = null, string File = __FILE__, size_t Line = __LINE__)(ref T result)
+    void structurize(T, Strict strict = Strict.yesIgnoreNull, string path = null)(ref T result)
     {
         enum unCamel = hasUDA!(T, UnCamelCaseAttribute);
 
@@ -346,7 +286,7 @@ private:
                     enum pathMember = path ~ member;
                     static if (unCamel)
                     {
-                        enum pathMemberAlt = path ~ Utils.unCamelCase(member);
+                        enum pathMemberAlt = path ~ member.unCamelCase;
                     }
                 }
                 else
@@ -360,16 +300,16 @@ private:
 
                 alias MemberType = typeof(__traits(getMember, result, member));
 
-                static if (is(Unqual!MemberType == struct) && !is(Unqual!MemberType == Date) && !is(Unqual!MemberType == DateTime) && !is(Unqual!MemberType == SysTime) && !is(Unqual!MemberType == Duration))
+                static if (!isValueType!MemberType)
                 {
                     enum pathNew = pathMember ~ ".";
                     static if (hasUDA!(__traits(getMember, result, member), OptionalAttribute))
                     {
-                        structurize!(MemberType, Strict.no, pathNew, File, Line)(__traits(getMember, result, member));
+                        structurize!(MemberType, Strict.no, pathNew)(__traits(getMember, result, member));
                     }
                     else
                     {
-                        structurize!(MemberType, strict, pathNew, File, Line)(__traits(getMember, result, member));
+                        structurize!(MemberType, strict, pathNew)(__traits(getMember, result, member));
                     }
                 }
                 else
@@ -397,17 +337,7 @@ private:
                                 continue;
                         }
 
-                        try
-                        {
-                            __traits(getMember, result, member) = pvalue.get!(Unqual!MemberType);
-                        }
-                        catch(Exception e)
-                        {
-                            e.file = File;
-                            e.line = Line;
-                            throw e;
-                        }
-
+                        __traits(getMember, result, member) = pvalue.get!(Unqual!MemberType);
                         continue;
                     }
 
@@ -421,7 +351,7 @@ private:
                         {
                             enum ColumnError = format("Column '%s' or '%s' was not found in this result set", pathMember, pathMember);
                         }
-                        throw new MySQLErrorException(ColumnError, File, Line);
+                        throw new MySQLErrorException(ColumnError);
                     }
                 }
             }
@@ -431,4 +361,73 @@ private:
     MySQLValue[] values_;
     const(char)[][] names_;
     uint[] index_;
+}
+
+string unCamelCase(string x)
+{
+    assert(x.length <= 64);
+
+    enum CharClass
+    {
+        LowerCase,
+        UpperCase,
+        Underscore,
+        Digit,
+    }
+
+    CharClass classify(char ch) @nogc @safe pure nothrow
+    {
+        switch (ch) with (CharClass)
+        {
+        case 'A':..case 'Z':
+            return UpperCase;
+        case 'a':..case 'z':
+            return LowerCase;
+        case '0':..case '9':
+            return Digit;
+        case '_':
+            return Underscore;
+        default:
+            assert(false, "only supports identifier-type strings");
+        }
+    }
+
+    if (x.length > 0)
+    {
+        char[128] buffer;
+        size_t length;
+
+        auto pcls = classify(x.ptr[0]);
+        foreach (i; 0..x.length) with (CharClass)
+        {
+            auto ch = x.ptr[i];
+            auto cls = classify(ch);
+
+            final switch (cls)
+            {
+            case Underscore:
+                buffer[length++] = '_';
+                break;
+            case LowerCase:
+                buffer[length++] = ch;
+                break;
+            case UpperCase:
+                if ((pcls != UpperCase) && (pcls != Underscore))
+                    buffer[length++] = '_';
+                buffer[length++] = std.ascii.toLower(ch);
+                break;
+            case Digit:
+                if (pcls != Digit)
+                    buffer[length++] = '_';
+                buffer[length++] = ch;
+                break;
+            }
+            pcls = cls;
+
+            if (length == buffer.length)
+                break;
+        }
+        return buffer[0..length].idup;
+    }
+    return x;
 }

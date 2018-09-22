@@ -6,12 +6,152 @@ import std.conv : parse, to;
 import std.datetime;
 import std.format: format, formattedWrite;
 import std.traits;
+import std.typecons;
 import std.variant;
 
 import mysql.protocol;
 import mysql.packet;
 import mysql.exception;
 import mysql.row;
+
+struct IgnoreAttribute {}
+struct OptionalAttribute {}
+struct NameAttribute { const(char)[] name; }
+struct UnCamelCaseAttribute {}
+struct TableNameAttribute { const(char)[] name; }
+
+@property TableNameAttribute tableName(const(char)[] name)
+{
+	return TableNameAttribute(name);
+}
+
+@property IgnoreAttribute ignore()
+{
+    return IgnoreAttribute();
+}
+
+@property OptionalAttribute optional()
+{
+    return OptionalAttribute();
+}
+
+@property NameAttribute as(const(char)[] name)
+{
+    return NameAttribute(name);
+}
+
+@property UnCamelCaseAttribute uncamel()
+{
+    return UnCamelCaseAttribute();
+}
+
+template isValueType(T)
+{
+	static if (is(Unqual!T == struct) && !isInstanceOf!(Nullable, T) && !is(Unqual!T == MySQLValue) && !is(Unqual!T == Date) && !is(Unqual!T == DateTime) && !is(Unqual!T == SysTime) && !is(Unqual!T == Duration))
+	{
+		enum isValueType = false;
+	}
+    else
+    {
+		enum isValueType = true;
+	}
+}
+
+template isWritableDataMember(T, string Member)
+{
+	static if (is(TypeTuple!(__traits(getMember, T, Member))))
+	{
+		enum isWritableDataMember = false;
+	}
+	else static if (!is(typeof(__traits(getMember, T, Member))))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (is(typeof(__traits(getMember, T, Member)) == void))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (is(typeof(__traits(getMember, T, Member)) == enum))
+    {
+		enum isWritableDataMember = true;
+	}
+    else static if (hasUDA!(__traits(getMember, T, Member), IgnoreAttribute))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (isArray!(typeof(__traits(getMember, T, Member))) && !is(typeof(typeof(__traits(getMember, T, Member)).init[0]) == ubyte) && !is(typeof(__traits(getMember, T, Member)) == string))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (isAssociativeArray!(typeof(__traits(getMember, T, Member))))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (isSomeFunction!(typeof(__traits(getMember, T, Member))))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if (!is(typeof((){ T x = void; __traits(getMember, x, Member) = __traits(getMember, x, Member); }())))
+    {
+		enum isWritableDataMember = false;
+	}
+    else static if ((__traits(getProtection, __traits(getMember, T, Member)) != "public") && (__traits(getProtection, __traits(getMember, T, Member)) != "export"))
+    {
+		enum isWritableDataMember = false;
+	}
+    else
+    {
+		enum isWritableDataMember = true;
+	}
+}
+
+template isReadableDataMember(T, string Member)
+{
+	static if (is(TypeTuple!(__traits(getMember, T, Member))))
+	{
+		enum isReadableDataMember = false;
+	}
+	else static if (!is(typeof(__traits(getMember, T, Member))))
+	{
+		enum isReadableDataMember = false;
+	}
+	else static if (is(typeof(__traits(getMember, T, Member)) == void))
+	{
+		enum isReadableDataMember = false;
+	}
+	else static if (is(typeof(__traits(getMember, T, Member)) == enum))
+	{
+		enum isReadableDataMember = true;
+	}
+    else static if (hasUDA!(__traits(getMember, T, Member), IgnoreAttribute))
+    {
+		enum isReadableDataMember = false;
+	}
+    else static if (isArray!(typeof(__traits(getMember, T, Member))) && !is(typeof(typeof(__traits(getMember, T, Member)).init[0]) == ubyte) && !is(typeof(__traits(getMember, T, Member)) == string))
+    {
+		enum isReadableDataMember = false;
+	}
+    else static if (isAssociativeArray!(typeof(__traits(getMember, T, Member))))
+    {
+		enum isReadableDataMember = false;
+	}
+    else static if (isSomeFunction!(typeof(__traits(getMember, T, Member)))  /* && return type is valueType*/ )
+    {
+		enum isReadableDataMember = true;
+	}
+    else static if (!is(typeof((){ T x = void; __traits(getMember, x, Member) = __traits(getMember, x, Member); }())))
+    {
+		enum isReadableDataMember = false;
+	}
+    else static if ((__traits(getProtection, __traits(getMember, T, Member)) != "public") && (__traits(getProtection, __traits(getMember, T, Member)) != "export"))
+    {
+		enum isReadableDataMember = false;
+	}
+    else
+    {
+		enum isReadableDataMember = true;
+	}
+}
 
 struct MySQLRawString
 {
@@ -101,6 +241,29 @@ struct MySQLValue
     {
         this = value;
     }
+
+	this(T)(T value) if (std.traits.isFloatingPoint!T)
+	{
+		alias UT = Unqual!T;
+
+		sign_ = 0x00;
+		static if (is(UT == float))
+		{
+			type_ = ColumnTypes.MYSQL_TYPE_FLOAT;
+			buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
+		}
+		else static if (is(UT == double))
+		{
+			type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
+			buffer_[0..T.sizeof] = (cast(ubyte*)&value)[0..T.sizeof];
+		}
+		else
+		{
+			type_ = ColumnTypes.MYSQL_TYPE_DOUBLE;
+			auto data = cast(double)value;
+			buffer_[0..typeof(data).sizeof] = (cast(ubyte*)&data)[0..typeof(data).sizeof];
+		}
+	}
 
     this(T)(T value) if (isIntegral!T || isBoolean!T)
     {
@@ -276,7 +439,7 @@ struct MySQLValue
         return !isNull ? get!T : def;
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (isScalarType!T && !is(T == enum))
+    T get(T)() const if (isScalarType!T && !is(T == enum))
     {
         switch(type_) with (ColumnTypes)
         {
@@ -295,11 +458,11 @@ struct MySQLValue
         case MYSQL_TYPE_DOUBLE:
             return cast(T)(*cast(double*)buffer_.ptr);
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == SysTime) || is(Unqual!T == DateTime) || is(Unqual!T == Date))
+    T get(T)() const if (is(Unqual!T == SysTime) || is(Unqual!T == DateTime) || is(Unqual!T == Date))
     {
         switch(type_) with (ColumnTypes)
         {
@@ -311,11 +474,11 @@ struct MySQLValue
         case MYSQL_TYPE_TIMESTAMP2:
             return (*cast(MySQLDateTime*)buffer_.ptr).to!T;
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == TimeOfDay))
+    T get(T)() const if (is(Unqual!T == TimeOfDay))
     {
         switch(type_) with (ColumnTypes)
         {
@@ -330,11 +493,11 @@ struct MySQLValue
         case MYSQL_TYPE_TIME2:
             return (*cast(MySQLTime*)buffer_.ptr).to!T;
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == Duration))
+    T get(T)() const if (is(Unqual!T == Duration))
     {
         switch(type_) with (ColumnTypes)
         {
@@ -342,16 +505,16 @@ struct MySQLValue
         case MYSQL_TYPE_TIME2:
             return (*cast(MySQLTime*)buffer_.ptr).to!T;
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == enum))
+    T get(T)() const if (is(Unqual!T == enum))
     {
-        return cast(T)get!(OriginalType!T, File, Line);
+        return cast(T)get!(OriginalType!T);
     }
 
-    T get(T, string File = __FILE__, size_t Line = __LINE__)() const if (isArray!T && !is(T == enum))
+    T get(T)() const if (isArray!T && !is(T == enum))
     {
         switch(type_) with (ColumnTypes)
         {
@@ -372,31 +535,38 @@ struct MySQLValue
         case MYSQL_TYPE_GEOMETRY:
             return (*cast(T*)buffer_.ptr).dup;
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
-    T peek(T, string File = __FILE__, size_t Line = __LINE__)(lazy T def) const
+    T get(T)() const if(isInstanceOf!(Nullable, T))
     {
-        return !isNull ? peek!(T, File, Line) : def;
+		if (type_ == ColumnTypes.MYSQL_TYPE_NULL)
+			return T.init;
+		return T(get!(typeof(T.init.get)));
+	}
+
+    T peek(T)(lazy T def) const
+    {
+        return !isNull ? peek!(T) : def;
     }
 
-    T peek(T, string File = __FILE__, size_t Line = __LINE__)() const if (isScalarType!T)
+    T peek(T)() const if (isScalarType!T)
     {
-        return get!(T, File, Line);
+        return get!(T);
     }
 
-    T peek(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == SysTime) || is(Unqual!T == DateTime) || is(Unqual!T == Date) || is(Unqual!T == TimeOfDay))
+    T peek(T)() const if (is(Unqual!T == SysTime) || is(Unqual!T == DateTime) || is(Unqual!T == Date) || is(Unqual!T == TimeOfDay))
     {
-        return get!(T, File, Line);
+        return get!(T);
     }
 
-    T peek(T, string File = __FILE__, size_t Line = __LINE__)() const if (is(Unqual!T == Duration))
+    T peek(T)() const if (is(Unqual!T == Duration))
     {
-        return get!(T, File, Line);
+        return get!(T);
     }
 
-    T peek(T, string File = __FILE__, size_t Line = __LINE__)() const if (isArray!T)
+    T peek(T)() const if (isArray!T)
     {
         switch(type_) with (ColumnTypes)
         {
@@ -417,7 +587,7 @@ struct MySQLValue
         case MYSQL_TYPE_GEOMETRY:
             return (*cast(T*)buffer_.ptr);
         default:
-            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof), File, Line);
+            throw new MySQLErrorException(format("Cannot convert '%s' from %s to %s", name_, columnTypeName(type_), T.stringof));
         }
     }
 
@@ -1344,28 +1514,6 @@ void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == Duration))
     putMySQLTime(packet, MySQLTime.from(value));
 }
 
-void putValueType(T)(ref OutputPacket packet, T value) if (is(Unqual!T == double))
-{
-    packet.put!ubyte(ColumnTypes.MYSQL_TYPE_DOUBLE);
-    packet.put!ubyte(0x80);
-}
-
-void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == double))
-{
-    packet.put!double(value);
-}
-
-void putValueType(T)(ref OutputPacket packet, T value) if (is(Unqual!T == float))
-{
-    packet.put!ubyte(ColumnTypes.MYSQL_TYPE_FLOAT);
-    packet.put!ubyte(0x80);
-}
-
-void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == float))
-{
-    packet.put!float(value);
-}
-
 void putValueType(T)(ref OutputPacket packet, T value) if (isIntegral!T || isBoolean!T)
 {
     alias UT = Unqual!T;
@@ -1393,12 +1541,6 @@ void putValueType(T)(ref OutputPacket packet, T value) if (isIntegral!T || isBoo
     }
 }
 
-void putValueType(T)(ref OutputPacket packet, T value) if (is(Unqual!T == typeof(null)))
-{
-    packet.put!ubyte(ColumnTypes.MYSQL_TYPE_NULL);
-    packet.put!ubyte(0x00);
-}
-
 void putValue(T)(ref OutputPacket packet, T value) if (isIntegral!T || isBoolean!T)
 {
     alias UT = Unqual!T;
@@ -1419,6 +1561,38 @@ void putValue(T)(ref OutputPacket packet, T value) if (isIntegral!T || isBoolean
     {
         packet.put!ubyte(value);
     }
+}
+
+void putValueType(T)(ref OutputPacket packet, T value) if (isFloatingPoint!T)
+{
+	alias UT = Unqual!T;
+
+	enum ubyte sign = 0x00;
+
+	static if (is(UT == float))
+	{
+		packet.put!ubyte(ColumnTypes.MYSQL_TYPE_FLOAT);
+		packet.put!ubyte(sign);
+	}
+	else
+	{
+		packet.put!ubyte(ColumnTypes.MYSQL_TYPE_DOUBLE);
+		packet.put!ubyte(sign);
+	}
+}
+
+void putValue(T)(ref OutputPacket packet, T value) if (isFloatingPoint!T)
+{
+	alias UT = Unqual!T;
+
+	static if (is(UT == float))
+	{
+		packet.put!float(value);
+	}
+	else
+	{
+		packet.put!double(cast(double)value);
+	}
 }
 
 void putValueType(T)(ref OutputPacket packet, T value) if (isSomeString!(OriginalType!T))
@@ -1521,4 +1695,38 @@ void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == MySQLValue
         packet.putMySQLDateTime(*cast(MySQLDateTime*)value.buffer_.ptr);
         break;
     }
+}
+
+void putValueType(T)(ref OutputPacket packet, T value) if (is(Unqual!T == typeof(null)))
+{
+    packet.put!ubyte(ColumnTypes.MYSQL_TYPE_NULL);
+    packet.put!ubyte(0x00);
+}
+
+void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == typeof(null)))
+{
+}
+
+void putValueType(T)(ref OutputPacket packet, T value) if (isInstanceOf!(Nullable, T) || isInstanceOf!(NullableRef, T))
+{
+	if (value.isNull)
+	{
+		putValueType(packet, null);
+	}
+	else
+	{
+		putValueType(packet, value.get);
+	}
+}
+
+void putValue(T)(ref OutputPacket packet, T value) if (isInstanceOf!(Nullable, T) || isInstanceOf!(NullableRef, T))
+{
+	if (value.isNull)
+	{
+		putValue(packet, null);
+	}
+	else
+	{
+		putValue(packet, value.get);
+	}
 }
