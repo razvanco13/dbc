@@ -1663,7 +1663,7 @@ void putValue(T)(ref OutputPacket packet, T value) if (is(Unqual!T == MySQLValue
         packet.put!double(*cast(double*)value.buffer_.ptr);
         break;
     case MYSQL_TYPE_FLOAT:
-        packet.put!double(*cast(float*)value.buffer_.ptr);
+        packet.put!float(*cast(float*)value.buffer_.ptr);
         break;
     case MYSQL_TYPE_SET:
     case MYSQL_TYPE_ENUM:
