@@ -15,7 +15,7 @@ struct Socket
         socket_ = new TcpSocket();
         socket_.connect(new InternetAddress(host, port));
         socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.KEEPALIVE, true);
-        socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.TCP_NODELAY, true);
+        socket_.setOption(SocketOptionLevel.TCP, SocketOption.TCP_NODELAY, true);
         socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.SNDTIMEO, 30.seconds);
         socket_.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, 30.seconds);
     }
